@@ -759,7 +759,10 @@ var ItemTree = class ItemTree extends LibraryTree {
 			}
 			// On removal of a selected row, select item at previous position
 			else if (savedSelection.length) {
-				if ((action == 'remove' || action == 'trash' || action == 'delete')
+				if ((action == 'remove'
+						|| action == 'trash'
+						|| action == 'delete'
+						|| action == 'removeDuplicatesMaster')
 					&& savedSelection.some(id => this.getRowIndexByID(id) === false)) {
 					// In duplicates view, select the next set on delete
 					if (collectionTreeRow.isDuplicates()) {
@@ -902,7 +905,7 @@ var ItemTree = class ItemTree extends LibraryTree {
 	 */
 	handleKeyUp = (event) => {
 		if (!Zotero.locked && event.code === 'Tab' && this.selection.count == 0) {
-			this.selection.select(this.selection.pivot);
+			this.selection.select(this.selection.focused);
 		}
 	};
 	
@@ -1011,7 +1014,7 @@ var ItemTree = class ItemTree extends LibraryTree {
 		this._getColumns();
 
 		this.selection.clearSelection();
-		this.selection.pivot = 0;
+		this.selection.focused = 0;
 		await this.refresh();
 		if (Zotero.CollectionTreeCache.error) {
 			return this.setItemsPaneMessage(Zotero.getString('pane.items.loadError'));
@@ -1021,6 +1024,8 @@ var ItemTree = class ItemTree extends LibraryTree {
 		}
 		this.forceUpdate(() => {
 			this.selection.selectEventsSuppressed = false;
+			// Reset scrollbar to top
+			this._treebox && this._treebox.scrollTo(0);
 			this._updateIntroText();
 			this._itemTreeLoadingDeferred.resolve();
 		});
@@ -1368,9 +1373,9 @@ var ItemTree = class ItemTree extends LibraryTree {
 			// Extract the beginning of the string in non-greedy mode
 			"^.+?"
 			// up to either the end of the string, "et al." at the end of string
-			+ "(?=(?: " + Zotero.getString('general.etAl').replace('.', '\.') + ")?$"
+			+ "(?=(?: " + Zotero.getString('general.etAl').replace('.', '\\.') + ")?$"
 			// or ' and '
-			+ "| " + Zotero.getString('general.and') + " "
+			+ "| " + Zotero.getString('general.and').replace('.', '\\.') + " "
 			+ ")"
 		);
 		
@@ -1820,7 +1825,7 @@ var ItemTree = class ItemTree extends LibraryTree {
 		}
 		catch (e) {
 			Zotero.debug(e, 1);
-			Cu.reportError(e);
+			Zotero.logError(e);
 			// This should match the default value for the fallbackSort pref
 			var fallbackFields = ['firstCreator', 'date', 'title', 'dateAdded'];
 		}
@@ -2023,12 +2028,12 @@ var ItemTree = class ItemTree extends LibraryTree {
 				}
 			}
 			else {
-				Cu.reportError("Invalid Quick Copy mode");
+				Zotero.logError("Invalid Quick Copy mode");
 			}
 		}
 		catch (e) {
 			Zotero.debug(e);
-			Cu.reportError(e + " with '" + format.id + "'");
+			Zotero.logError(e + " with '" + format.id + "'");
 		}
 	}
 
@@ -2867,7 +2872,7 @@ var ItemTree = class ItemTree extends LibraryTree {
 		}
 
 		div.classList.toggle('selected', selection.isSelected(index));
-		div.classList.toggle('pivot', selection.pivot == index);
+		div.classList.toggle('focused', selection.focused == index);
 		div.classList.remove('drop', 'drop-before', 'drop-after');
 		const rowData = this._getRowData(index);
 		div.classList.toggle('context-row', !!rowData.contextRow);
@@ -3591,7 +3596,9 @@ var ItemTree = class ItemTree extends LibraryTree {
 			}
 		});
 		
+		// Filter out ignored columns
 		const columns = this._getColumns();
+		let columnMenuitemElements = {};
 		for (let i = 0; i < columns.length; i++) {
 			const column = columns[i];
 			if (column.ignoreInColumnPicker === true) continue;
@@ -3607,6 +3614,7 @@ var ItemTree = class ItemTree extends LibraryTree {
 			if (column.disabledIn && column.disabledIn.includes(this.collectionTreeRow.visibilityGroup)) {
 				menuitem.setAttribute('disabled', true);
 			}
+			columnMenuitemElements[column.dataKey] = menuitem;
 			menupopup.appendChild(menuitem);
 		}
 		
@@ -3625,7 +3633,7 @@ var ItemTree = class ItemTree extends LibraryTree {
 			for (let i = 0; i < columns.length; i++) {
 				const column = columns[i];
 				if (column.submenu) {
-					moreItems.push(menupopup.children[i]);
+					moreItems.push(columnMenuitemElements[column.dataKey]);
 				}
 			}
 			
@@ -3644,10 +3652,10 @@ var ItemTree = class ItemTree extends LibraryTree {
 			menupopup.appendChild(moreMenu);
 		}
 		catch (e) {
-			Cu.reportError(e);
+			Zotero.logError(e);
 			Zotero.debug(e, 1);
 		}
-		
+
 		//
 		// Secondary Sort menu
 		//
@@ -3710,7 +3718,7 @@ var ItemTree = class ItemTree extends LibraryTree {
 				menupopup.appendChild(sortMenu);
 			}
 			catch (e) {
-				Cu.reportError(e);
+				Zotero.logError(e);
 				Zotero.debug(e, 1);
 			}
 		}

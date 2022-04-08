@@ -1750,6 +1750,19 @@ describe("Zotero.Item", function () {
 			);
 			assert.lengthOf(annotationIDs, 1);
 		});
+		
+		it("should set username as name if not set for library item", async function () {
+			await Zotero.Users.setCurrentUserID(1);
+			var username = Zotero.Utilities.randomString();
+			await Zotero.Users.setCurrentUsername(username);
+			await Zotero.DB.queryAsync("DELETE FROM users");
+			
+			var group = await createGroup();
+			var libraryID = group.libraryID;
+			var item = await createDataObject('item', { libraryID });
+			
+			assert.equal(Zotero.Users.getCurrentName(), username);
+		});
 	})
 	
 	
@@ -2265,6 +2278,38 @@ describe("Zotero.Item", function () {
 			assert.strictEqual(item.getField('title'), 'Test');
 			assert.strictEqual(item.getField('date'), '');
 			assert.strictEqual(item.getField('accessDate'), '');
+		});
+		
+		it("should remove missing creators and change existing", function () {
+			var item = new Zotero.Item('book');
+			item.setCreators(
+				[
+					{
+						name: "A",
+						creatorType: "author"
+					},
+					{
+						name: "B",
+						creatorType: "author"
+					},
+					{
+						name: "C",
+						creatorType: "author"
+					}
+				]
+			);
+			var json = item.toJSON();
+			// Remove creators, which should cause them to be cleared in fromJSON()
+			var newCreators = [
+				{
+					name: "D",
+					creatorType: "author"
+				}
+			];
+			json.creators = newCreators;
+			
+			item.fromJSON(json);
+			assert.sameDeepMembers(item.getCreatorsJSON(), newCreators);
 		});
 		
 		it("should remove item from collection if 'collections' property not provided", function* () {

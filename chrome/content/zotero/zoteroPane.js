@@ -118,6 +118,7 @@ var ZoteroPane = new function()
 			this.updateWindow();
 			this.updateToolbarPosition();
 			this.updateTagsBoxSize();
+			this.updateItemTreeColumnWidths();
 		});
 		window.setTimeout(this.updateToolbarPosition.bind(this), 0);
 		
@@ -527,6 +528,83 @@ var ZoteroPane = new function()
 	 * Trigger actions based on keyboard shortcuts
 	 */
 	function handleKeyDown(event, from) {
+		if (Zotero_Tabs.selectedIndex > 0) {
+			let itemPaneToggle = document.getElementById('zotero-tb-toggle-item-pane');
+			let notesPaneToggle = document.getElementById('zotero-tb-toggle-notes-pane');
+			// Using ArrowDown and ArrowUp to be consistent with pdf-reader
+			if (!Zotero.rtl && event.key === 'ArrowRight'
+				|| Zotero.rtl && event.key === 'ArrowLeft'
+				|| event.key === 'ArrowDown') {
+				if (event.target === itemPaneToggle) {
+					notesPaneToggle.focus();
+				}
+			}
+			else if (!Zotero.rtl && event.key === 'ArrowLeft'
+				|| Zotero.rtl && event.key === 'ArrowRight'
+				|| event.key === 'ArrowUp') {
+				if (event.target === notesPaneToggle) {
+					itemPaneToggle.focus();
+				}
+				else if (event.target === itemPaneToggle) {
+					let reader = Zotero.Reader.getByTabID(Zotero_Tabs.selectedID);
+					if (reader) {
+						reader.focusLastToolbarButton();
+					}
+				}
+			}
+			else if (event.key === 'Tab'
+				&& [itemPaneToggle, notesPaneToggle].includes(event.target)) {
+				if (event.shiftKey) {
+					ZoteroContextPane.focus();
+				}
+				else {
+					let reader = Zotero.Reader.getByTabID(Zotero_Tabs.selectedID);
+					if (reader) {
+						reader.tabToolbar();
+					}
+				}
+				event.preventDefault();
+				event.stopPropagation();
+			}
+			else if (event.key === 'Escape') {
+				if (!document.activeElement.classList.contains('reader')) {
+					let reader = Zotero.Reader.getByTabID(Zotero_Tabs.selectedID);
+					if (reader) {
+						reader.focus();
+						event.preventDefault();
+						event.stopPropagation();
+					}
+				}
+			}
+			else if (event.key === 'Tab' && event.shiftKey) {
+				let node = document.activeElement;
+				if (node && node.nodeType === Node.ELEMENT_NODE && (
+					node.parentNode.classList.contains('zotero-editpane-tabs')
+					|| node.getAttribute('type') === 'search'
+					|| node.getAttribute('anonid') === 'editor-view'
+					&& node.contentWindow.document.activeElement.classList.contains('toolbar-button-return'))) {
+					let reader = Zotero.Reader.getByTabID(Zotero_Tabs.selectedID);
+					if (reader) {
+						reader.focus();
+					}
+					event.preventDefault();
+					event.stopPropagation();
+				}
+			}
+			else if (event.key === 'Tab') {
+				if (!document.activeElement.classList.contains('reader')) {
+					setTimeout(() => {
+						if (document.activeElement.classList.contains('reader')) {
+							let reader = Zotero.Reader.getByTabID(Zotero_Tabs.selectedID);
+							if (reader) {
+								reader.focusFirst();
+							}
+						}
+					});
+				}
+			}
+		}
+
 		const cmdOrCtrlOnly = Zotero.isMac
 			? (event.metaKey && !event.shiftKey && !event.ctrlKey && !event.altKey)
 			: (event.ctrlKey && !event.shiftKey && !event.altKey);
@@ -911,6 +989,9 @@ var ZoteroPane = new function()
 		//set to Info tab
 		document.getElementById('zotero-view-item').selectedIndex = 0;
 		
+		// Ensure item is visible
+		yield this.selectItem(itemID);
+
 		if (manual) {
 			// Update most-recently-used list for New Item menu
 			this.addItemTypeToNewItemTypeMRU(Zotero.ItemTypes.getName(typeID));
@@ -968,14 +1049,12 @@ var ZoteroPane = new function()
 			Zotero.getString('pane.collections.newCollection'),
 			Zotero.getString('pane.collections.name'), newName, "", {});
 		
-		if (!result)
-		{
+		if (!result) {
 			return;
 		}
 		
-		if (!newName.value)
-		{
-			newName.value = untitled;
+		if (!newName.value) {
+			newName.value = name;
 		}
 		
 		var collection = new Zotero.Collection;
@@ -1276,6 +1355,7 @@ var ZoteroPane = new function()
 			"cmd_zotero_newCollection",
 			"cmd_zotero_newSavedSearch",
 			"zotero-tb-add",
+			"menu_newItem",
 			"zotero-tb-lookup",
 			"cmd_zotero_newStandaloneNote",
 			"zotero-tb-note-add",
@@ -1284,6 +1364,7 @@ var ZoteroPane = new function()
 		for (let i = 0; i < disableIfNoEdit.length; i++) {
 			let command = disableIfNoEdit[i];
 			let el = document.getElementById(command);
+			if (!el) continue;
 			
 			// If a trash is selected, new collection depends on the
 			// editability of the library
@@ -2266,10 +2347,7 @@ var ZoteroPane = new function()
 	
 	
 	this.sync = function () {
-		let syncReminder = document.getElementById('sync-reminder-container');
-		if (!syncReminder.collapsed) {
-			syncReminder.collapsed = true;
-		}
+		this.hideSyncReminder();
 
 		Zotero.Sync.Server.canAutoResetClient = true;
 		Zotero.Sync.Server.manualSyncRequired = false;
@@ -2374,7 +2452,8 @@ var ZoteroPane = new function()
 				|| Zotero.Prefs.get('sync.autoSync')
 				|| Zotero.Libraries.getAll()
 					.every(library => !library.syncable
-						|| library.lastSync.getTime() > Date.now() - 1000 * sevenDays)) {
+						|| (library.lastSync
+							&& library.lastSync.getTime() > Date.now() - 1000 * sevenDays))) {
 			return;
 		}
 
@@ -2401,10 +2480,7 @@ var ZoteroPane = new function()
 		}
 
 		let panel = document.getElementById('sync-reminder-container');
-		const closePanel = function () {
-			panel.setAttribute('collapsed', true);
-			Zotero.Prefs.set(`sync.reminder.${reminderType}.lastDisplayed`, Math.round(Date.now() / 1000));
-		};
+		panel.setAttribute('data-reminder-type', reminderType);
 
 		let message = document.getElementById('sync-reminder-message');
 		message.textContent = Zotero.getString(`sync.reminder.${reminderType}.message`, Zotero.appName);
@@ -2420,8 +2496,8 @@ var ZoteroPane = new function()
 				break;
 		}
 		actionLink.textContent = actionStr;
-		actionLink.onclick = function () {
-			closePanel();
+		actionLink.onclick = () => {
+			this.hideSyncReminder();
 
 			switch (reminderType) {
 				case 'setUp':
@@ -2436,14 +2512,12 @@ var ZoteroPane = new function()
 		let learnMoreLink = document.getElementById('sync-reminder-learn-more');
 		learnMoreLink.textContent = Zotero.getString('general.learnMore');
 		learnMoreLink.hidden = !options.learnMoreURL;
-		learnMoreLink.onclick = function () {
-			Zotero.launchURL(options.learnMoreURL);
-		};
+		learnMoreLink.onclick = () => Zotero.launchURL(options.learnMoreURL);
 		
 		let dontShowAgainLink = document.getElementById('sync-reminder-disable');
 		dontShowAgainLink.textContent = Zotero.getString('general.dontAskAgain');
-		dontShowAgainLink.onclick = function () {
-			closePanel();
+		dontShowAgainLink.onclick = () => {
+			this.hideSyncReminder();
 			Zotero.Prefs.set(`sync.reminder.${reminderType}.enabled`, false);
 			// Check if we no longer need to observe item modifications
 			ZoteroPane.initSyncReminders(false);
@@ -2451,16 +2525,28 @@ var ZoteroPane = new function()
 
 		let remindMeLink = document.getElementById('sync-reminder-remind');
 		remindMeLink.textContent = Zotero.getString('general.remindMeLater');
-		remindMeLink.onclick = function () {
-			closePanel();
-		};
+		remindMeLink.onclick = () => this.hideSyncReminder();
 
 		let closeButton = document.getElementById('sync-reminder-close');
-		closeButton.onclick = function () {
-			closePanel();
-		};
+		closeButton.onclick = () => this.hideSyncReminder();
 
 		panel.removeAttribute('collapsed');
+	};
+
+
+	/**
+	 * Hide the currently displayed sync reminder and update its associated
+	 * lastDisplayed time.
+	 */
+	this.hideSyncReminder = function () {
+		let panel = document.getElementById('sync-reminder-container');
+		let reminderType = panel.getAttribute('data-reminder-type');
+		panel.setAttribute('collapsed', true);
+		panel.removeAttribute('data-reminder-type');
+
+		if (['setUp', 'autoSync'].includes(reminderType)) {
+			Zotero.Prefs.set(`sync.reminder.${reminderType}.lastDisplayed`, Math.round(Date.now() / 1000));
+		}
 	};
 
 
@@ -3711,48 +3797,6 @@ var ZoteroPane = new function()
 	
 	this.findNoteWindow = function (itemID) {
 		var name = 'zotero-note-' + itemID;
-		var wm = Services.wm;
-		var e = wm.getEnumerator('zotero:note');
-		while (e.hasMoreElements()) {
-			var w = e.getNext();
-			if (w.name == name) {
-				return w;
-			}
-		}
-	};
-	
-	
-	this.openBackupNoteWindow = function (itemID) {
-		var item = Zotero.Items.get(itemID);
-		var type = Zotero.Libraries.get(item.libraryID).libraryType;
-		if (!this.canEdit()) {
-			this.displayCannotEditLibraryMessage();
-			return;
-		}
-		
-		var name = null;
-		
-		if (itemID) {
-			let w = this.findBackupNoteWindow(itemID);
-			if (w) {
-				w.focus();
-				return;
-			}
-			
-			// Create a name for this window so we can focus it later
-			//
-			// Collection is only used on new notes, so we don't need to
-			// include it in the name
-			name = 'zotero-backup-note-' + itemID;
-		}
-		
-		var io = { itemID: itemID };
-		window.openDialog('chrome://zotero/content/noteBackup.xul', name, 'chrome,resizable,centerscreen,dialog=false', io);
-	}
-	
-	
-	this.findBackupNoteWindow = function (itemID) {
-		var name = 'zotero-backup-note-' + itemID;
 		var wm = Services.wm;
 		var e = wm.getEnumerator('zotero:note');
 		while (e.hasMoreElements()) {
@@ -5448,7 +5492,12 @@ var ZoteroPane = new function()
 			list.style.height = height + 'px';
 		}
 	};
-	
+
+	this.updateItemTreeColumnWidths = function() {
+		if (!ZoteroPane.itemsView || !ZoteroPane.itemsView.tree) return;
+		ZoteroPane.itemsView.tree.updateColumnWidths();
+	};
+
 	/**
 	 * Opens the about dialog
 	 */

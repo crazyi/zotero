@@ -55,6 +55,8 @@ class PDFWorker {
 			}
 		}
 		this._processingQueue = false;
+		this._worker.terminate();
+		this._worker = null;
 	}
 
 	async _enqueue(fn, isPriority) {
@@ -330,6 +332,27 @@ class PDFWorker {
 				+ `in ${new Date() - t} ms`);
 			
 			return !!(imported.length || deleted.length);
+		}, isPriority);
+	}
+
+	async processCitaviAnnotations(pdfPath, citaviAnnotations, isPriority, password) {
+		return this._enqueue(async () => {
+			let buf = await OS.File.read(pdfPath, {});
+			buf = new Uint8Array(buf).buffer;
+			try {
+				var annotations = await this._query('importCitavi', {
+					buf, citaviAnnotations, password
+				}, [buf]);
+			}
+			catch (e) {
+				let error = new Error(`Worker 'importCitavi' failed: ${JSON.stringify({
+					citaviAnnotations,
+					error: e.message
+				})}`);
+				Zotero.logError(error);
+				throw error;
+			}
+			return annotations;
 		}, isPriority);
 	}
 	

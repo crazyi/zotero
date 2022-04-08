@@ -138,11 +138,12 @@
 
 .virtualized-table.multi-select:focus {
 
-	.row.pivot {
+	.row.focused {
 		border: 1px dotted highlight;
 		box-sizing: initial;
 		margin: -1px 0;
 		width: calc(100% - 2px);
+		z-index: 10000;
 
 		> *:first-child {
 			margin-inline-start: -1px;
@@ -237,6 +238,12 @@
 		text-overflow: ellipsis;
 		overflow: hidden;
 		max-height: 100%;
+		// TEMP: Disables tooltip display for truncated cells, but without this rule
+		// you cannot drag items before selecting them first because the ondrag event is
+		// not called if any children under the drag element are removed for which 
+		// pointer-events are enabled, and we need to rerender the rows for selection
+		// before dragging.
+		pointer-events: none;
 	}
 }
 
