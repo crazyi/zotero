@@ -819,6 +819,73 @@ describe("Zotero.Items", function () {
 			assert.lengthOf(rels, 2);
 			assert.sameMembers(rels, [attachment2URI, attachment3URI]);
 		});
+
+		it("should not merge attachments with different content types", async function () {
+			let item1 = await createDataObject('item', { setTitle: true });
+			let attachment1 = await importPDFAttachment(item1);
+
+			let item2 = item1.clone();
+			await item2.saveTx();
+			let attachment2 = await importPDFAttachment(item2);
+			attachment2.attachmentContentType = 'text/plain';
+			await attachment2.saveTx();
+
+			await Zotero.Items.merge(item1, [item2]);
+
+			assert.isFalse(item1.deleted);
+			assert.isFalse(attachment1.deleted);
+			assert.equal(item1.numAttachments(true), 2);
+			assert.isTrue(item2.deleted);
+			assert.isFalse(attachment2.deleted);
+			assert.equal(attachment2.parentItemID, item1.id);
+		});
+
+		it("should merge two stored-file attachments with different link modes", async function () {
+			let file = getTestDataDirectory();
+			file.append('test.pdf');
+
+			let item1 = await createDataObject('item', { setTitle: true });
+			let attachment1 = await importPDFAttachment(item1);
+			attachment1.attachmentLinkMode = Zotero.Attachments.LINK_MODE_IMPORTED_URL;
+			await attachment1.saveTx();
+
+			let item2 = item1.clone();
+			await item2.saveTx();
+			let attachment2 = await importPDFAttachment(item2);
+
+			await Zotero.Items.merge(item1, [item2]);
+
+			assert.isFalse(item1.deleted);
+			assert.isFalse(attachment1.deleted);
+			assert.equal(item1.numAttachments(true), 1);
+			assert.isTrue(item2.deleted);
+			assert.isTrue(attachment2.deleted);
+		});
+
+		it("should not merge attachments with different link mode types", async function () {
+			let file = getTestDataDirectory();
+			file.append('test.pdf');
+
+			let item1 = await createDataObject('item', { setTitle: true });
+			let attachment1 = await Zotero.Attachments.linkFromFile({
+				file,
+				parentItemID: item1.id
+			});
+
+			let item2 = item1.clone();
+			await item2.saveTx();
+			let attachment2 = await importPDFAttachment(item2);
+
+			await Zotero.Items.merge(item1, [item2]);
+
+			assert.equal(await attachment1.attachmentHash, await attachment2.attachmentHash);
+			assert.isFalse(item1.deleted);
+			assert.isFalse(attachment1.deleted);
+			assert.equal(item1.numAttachments(true), 2);
+			assert.isTrue(item2.deleted);
+			assert.isFalse(attachment2.deleted);
+			assert.equal(attachment2.parentItemID, item1.id);
+		});
 	})
 	
 	
